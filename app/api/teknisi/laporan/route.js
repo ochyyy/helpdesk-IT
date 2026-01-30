@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
 
@@ -6,20 +7,7 @@ export async function GET() {
   try {
     const [rows] = await db.query(`
       SELECT
-        l.id,
-        l.user_id,
-        l.judul,
-        l.kategori,
-        l.prioritas,
-        l.deskripsi,
-        l.lokasi,
-        l.status,
-        l.created_at,
-        l.updated_at,
-        l.komentar,
-        l.pic,
-        l.gambar,
-        l.estimasi,
+        l.*,
         u.username
       FROM laporan l
       JOIN users u ON l.user_id = u.id
@@ -37,7 +25,8 @@ export async function GET() {
 
     return new Response(
       JSON.stringify({
-        message: "Gagal mengambil data laporan",
+        success: false,
+        error: err.message,
       }),
       {
         status: 500,
