@@ -1,34 +1,48 @@
-import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import bcrypt from "bcryptjs";
+export const dynamic = "force-dynamic";
+import TelegramBot from "node-telegram-bot-api";
+import bcrypt from "bcrypt";
+import { db } from "./lib/db.js";
 
-export async function POST(req) {
-  try {
-    const { username, password, telegram_id } = await req.json();
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-    if (!username || !password || !telegram_id) {
-      return NextResponse.json({ message: "Data tidak lengkap" }, { status: 400 });
-    }
+const step = {}; // simpan state user
 
-    const [cek] = await db.query(
-      "SELECT id FROM users WHERE username = ? LIMIT 1",
-      [username]
-    );
+bot.onText(/\/daftar/, (msg) => {
+  step[msg.chat.id] = { stage: "username" };
+  bot.sendMessage(msg.chat.id, "📝 Masukkan username:");
+});
 
-    if (cek.length > 0) {
-      return NextResponse.json({ message: "Username sudah digunakan" }, { status: 400 });
-    }
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  if (!step[chatId] || msg.text.startsWith("/")) return;
 
-    const hash = await bcrypt.hash(password, 10);
-
-    await db.query(
-      "INSERT INTO users (username, password, role, telegram_id) VALUES (?, ?, ?, ?)",
-      [username, hash, "user", telegram_id]
-    );
-
-    return NextResponse.json({ message: "Register berhasil" });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ message: "Server error" }, { status: 500 });
+  // STEP USERNAME
+  if (step[chatId].stage === "username") {
+    step[chatId].username = msg.text;
+    step[chatId].stage = "password";
+    return bot.sendMessage(chatId, "🔒 Masukkan password:");
   }
-}
+
+  // STEP PASSWORD
+  if (step[chatId].stage === "password") {
+    const { username } = step[chatId];
+    const passwordHash = await bcrypt.hash(msg.text, 10);
+
+    try {
+      await db.query(
+        `INSERT INTO users (username, password, role, telegram_chat_id)
+         VALUES (?, ?, 'user', ?)`,
+        [username, passwordHash, chatId]
+      );
+
+      bot.sendMessage(
+        chatId,
+        "✅ Registrasi berhasil!\nSekarang kamu bisa login di web."
+      );
+    } catch (err) {
+      bot.sendMessage(chatId, "❌ Username sudah digunakan.");
+    }
+
+    delete step[chatId];
+  }
+});
