@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import TelegramBot from "node-telegram-bot-api";
 import bcrypt from "bcrypt";
-import { db } from "./lib/db.js";
+import { db } from "@/lib/db.js";
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 

@@ -29,25 +29,14 @@ export default function TeknisiPage() {
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState("harian");
 
-  // ================= FETCH LAPORAN (AMAN) =================
+  // ================= FETCH LAPORAN =================
   const fetchLaporan = async () => {
     try {
       const res = await fetch("/api/teknisi/laporan");
-      if (!res.ok) {
-        setLaporan([]);
-        return;
-      }
-
-      const text = await res.text();
-      if (!text) {
-        setLaporan([]);
-        return;
-      }
-
-      const data = JSON.parse(text);
+      const data = await res.json();
       setLaporan(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Fetch laporan error:", err);
+      console.error(err);
       setLaporan([]);
     }
   };
@@ -56,68 +45,112 @@ export default function TeknisiPage() {
   const fetchChart = async (m = mode) => {
     try {
       const res = await fetch(`/api/teknisi/statistik?mode=${m}`);
-      const data = await res.json();
-      setChart(Array.isArray(data) ? data : []);
-    } catch {
+      const json = await res.json();
+      // Backend may return { mode, start, end, data: [...] }
+      const payload = Array.isArray(json) ? json : (json?.data ?? []);
+      setChart(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error("fetchChart error:", err);
       setChart([]);
     }
   };
 
-  // ================= INIT (TANPA Promise.all) =================
   useEffect(() => {
-    const init = async () => {
+    (async () => {
       setLoading(true);
-      await fetchLaporan(); // 🔥 WAJIB ditunggu
+      await fetchLaporan();
       await fetchChart();
       setLoading(false);
-    };
-    init();
+    })();
   }, []);
 
   useEffect(() => {
     fetchChart(mode);
   }, [mode]);
 
-  // ================= UPDATE =================
-  const handleUpdate = async (id, status, pic, estimasi, komentar) => {
-    try {
-      const res = await fetch(`/api/laporan/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status, pic, estimasi, komentar }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Gagal update");
-
-      alert("Berhasil update laporan");
-      await fetchLaporan(); // 🔥 refresh ulang
-    } catch (err) {
-      alert("Gagal update laporan: " + err.message);
-    }
-  };
-
   if (loading) return <p className="p-6">Memuat...</p>;
 
   // ================= FILTER =================
-  const baru = laporan.filter(
-    (l) => l.status?.toLowerCase() === "baru"
-  );
-  const proses = laporan.filter(
-    (l) => l.status?.toLowerCase() === "diproses"
-  );
-  const selesai = laporan.filter(
-    (l) => l.status?.toLowerCase() === "selesai"
-  );
+  const baru = laporan.filter(l => l.status?.toLowerCase() === "baru");
+  const proses = laporan.filter(l => l.status?.toLowerCase() === "diproses");
+  const selesai = laporan.filter(l => l.status?.toLowerCase() === "selesai");
 
   // ================= GRAFIK =================
-  const labels = chart.map((c) =>
-    new Date(c.label).toLocaleDateString("id-ID", {
-      day: "2-digit",
-      month: "short",
-    })
-  );
-  const values = chart.map((c) => c.total);
+  // 🔥 JANGAN new Date() (tapi kita boleh parsing label string untuk formatting sederhana)
+  const originalLabels = chart.map((c) => c.label);
+  const labels = originalLabels; // kept for clarity for other logic
+  const values = chart.map((c) => Number(c.total) || 0);
+
+  // Helper formatters
+  const monthNames = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+
+  const formatDayMonth = (d) => `${String(d.getUTCDate()).padStart(2, '0')} ${monthNames[d.getUTCMonth()]}`;
+  const isoWeekStart = (year, week) => {
+    const jan4 = new Date(Date.UTC(year, 0, 4));
+    const dayOfWeek = jan4.getUTCDay() || 7;
+    const monday = new Date(jan4);
+    monday.setUTCDate(jan4.getUTCDate() + (week - 1) * 7 - (dayOfWeek - 1));
+    return monday;
+  };
+  const weekRangeLabel = (label) => {
+    const m = label.match(/^(\d{4})-W(\d{2})$/);
+    if (!m) return label;
+    const year = Number(m[1]);
+    const week = Number(m[2]);
+    const start = isoWeekStart(year, week);
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 6);
+    if (start.getUTCMonth() === end.getUTCMonth()) {
+      return `${String(start.getUTCDate()).padStart(2, '0')}-${String(end.getUTCDate()).padStart(2, '0')} ${monthNames[start.getUTCMonth()]}`;
+    }
+    return `${formatDayMonth(start)} - ${formatDayMonth(end)}`;
+  };
+
+  const formatLabel = (label, mode) => {
+    if (!label) return "";
+    if (mode === "harian") {
+      const m = label.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return `${m[3]} ${monthNames[Number(m[2]) - 1]}`;
+      return label;
+    }
+    if (mode === "mingguan") {
+      return weekRangeLabel(label);
+    }
+    const m = label.match(/^(\d{4})-(\d{2})-01$/);
+    if (m) return `${monthNames[Number(m[2]) - 1]} ${m[1]}`;
+    return label;
+  };
+
+  const displayLabels = labels.map((l) => formatLabel(l, mode));
+  const maxVal = values.length ? Math.max(...values) : 0;
+  const yStep = maxVal <= 5 ? 1 : Math.ceil(maxVal / 5);
+  const allZero = values.every((v) => v === 0);
+  const pointRadius = values.length > 60 ? 0 : 4;
+
+  // For 'harian' mode, show only dates that have reports to reduce clutter
+  let chartOrig = originalLabels.slice();
+  let chartValuesUsed = values.slice();
+  let chartLabelsUsed = displayLabels.slice();
+
+  if (mode === 'harian') {
+    // show only dates that have reports to reduce clutter for daily view
+    const filtered = chartOrig
+      .map((o, i) => ({ o, v: values[i], d: displayLabels[i] }))
+      .filter((x) => x.v > 0);
+    if (filtered.length > 0) {
+      chartOrig = filtered.map((x) => x.o);
+      chartValuesUsed = filtered.map((x) => x.v);
+      chartLabelsUsed = filtered.map((x) => x.d);
+    }
+  }
+
+  // recompute based on used dataset
+  const maxValUsed = chartValuesUsed.length ? Math.max(...chartValuesUsed) : 0;
+  const yStepUsed = maxValUsed <= 5 ? 1 : Math.ceil(maxValUsed / 5);
+
+  // label sampling to avoid overcrowding
+  const visibleTicks = mode === 'harian' ? 8 : mode === 'mingguan' ? 6 : 8;
+  const tickStep = Math.max(1, Math.ceil(chartLabelsUsed.length / visibleTicks));
 
   return (
     <div className="p-6">
@@ -128,7 +161,7 @@ export default function TeknisiPage() {
         <div className="flex justify-between items-center mb-3">
           <h2 className="font-semibold">Grafik Laporan</h2>
           <div className="flex gap-2">
-            {["harian", "mingguan", "bulanan"].map((m) => (
+            {["harian", "mingguan", "bulanan"].map(m => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
@@ -143,52 +176,92 @@ export default function TeknisiPage() {
         </div>
 
         <div className="relative h-[280px]">
-          <Line
-            data={{
-              labels,
-              datasets: [
-                {
-                  label: "Jumlah Laporan",
-                  data: values,
-                  fill: true,
-                  tension: 0.4,
-                  borderColor: "#22c55e",
-                  backgroundColor: "rgba(34,197,94,0.15)",
-                  pointRadius: 4,
+          {allZero ? (
+            <div className="absolute inset-0 flex items-center justify-center text-gray-400 font-medium">
+              Tidak ada data untuk ditampilkan
+            </div>
+          ) : (
+            <Line
+              data={{
+                labels: chartLabelsUsed,
+                datasets: [
+                  {
+                    label: "Jumlah Laporan",
+                    data: chartValuesUsed,
+                    borderColor: "#22c55e",
+                    backgroundColor: "rgba(34,197,94,0.15)",
+                    tension: 0.4,
+                    fill: true,
+                    pointRadius,
+                    pointHoverRadius: Math.min(8, Math.max(4, pointRadius)),
+                  },
+                ],
+              }}
+
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: { display: false },
+                  tooltip: {
+                    callbacks: {
+                      title: (items) => {
+                        const idx = items[0]?.dataIndex ?? 0;
+                        const orig = chartOrig[idx];
+                        if (!orig) return items[0]?.label;
+                        if (mode === 'harian') return orig;
+                        if (mode === 'mingguan') return `${orig} (${formatLabel(orig, 'mingguan')})`;
+                        return orig;
+                      }
+                    }
+                  }
                 },
-              ],
-            }}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: {
-                y: { beginAtZero: true, ticks: { stepSize: 1 } },
-              },
-            }}
-          />
+                scales: {
+                  x: {
+                    ticks: {
+                      autoSkip: false,
+                      callback: function(value, index) {
+                        return index % tickStep === 0 ? this.getLabelForValue(index) : '';
+                      },
+                      maxRotation: 45,
+                      minRotation: 25,
+                    },
+                    grid: { color: 'rgba(0,0,0,0.03)' },
+                  },
+                  y: {
+                    beginAtZero: true,
+                    ticks: {
+                      stepSize: yStepUsed,
+                    },
+                    suggestedMax: maxValUsed + yStepUsed,
+                  }
+                },
+                interaction: { mode: 'index', intersect: false },
+                elements: { point: { radius: pointRadius } },
+              }}
+            />
+          )}
         </div>
       </div>
 
-      {/* ================= LIST ================= */}
-      <Section title="Laporan Baru" items={baru} onUpdate={handleUpdate} />
-      <Section title="Laporan Diproses" items={proses} onUpdate={handleUpdate} />
-      <Section title="Laporan Selesai" items={selesai} onUpdate={handleUpdate} />
+      <Section title="Laporan Baru" items={baru} />
+      <Section title="Laporan Diproses" items={proses} />
+      <Section title="Laporan Selesai" items={selesai} />
     </div>
   );
 }
 
 // ================= SECTION =================
-function Section({ title, items, onUpdate }) {
+function Section({ title, items }) {
   return (
     <div className="mb-10">
       <h2 className="text-xl font-bold mb-3">{title}</h2>
+      {items.length === 0 && (
+        <p className="text-gray-400 text-sm">Tidak ada data</p>
+      )}
       <div className="space-y-4">
-        {items.length === 0 && (
-          <p className="text-gray-400 text-sm">Tidak ada data</p>
-        )}
-        {items.map((item) => (
-          <LaporanCard key={item.id} item={item} onUpdate={onUpdate} />
+        {items.map(item => (
+          <LaporanCard key={item.id} item={item} />
         ))}
       </div>
     </div>
@@ -196,14 +269,9 @@ function Section({ title, items, onUpdate }) {
 }
 
 // ================= CARD =================
-function LaporanCard({ item, onUpdate }) {
-  const [status, setStatus] = useState(item.status || "Baru");
-  const [pic, setPic] = useState(item.pic || "");
-  const [estimasi, setEstimasi] = useState(item.estimasi || "");
-  const [komentar, setKomentar] = useState(item.komentar || "");
-
+function LaporanCard({ item }) {
   const img = item.gambar
-    ? `${BASE_IMG}${item.gambar.replace(/^\/?/, "")}`
+    ? `${BASE_IMG}${item.gambar.replace(/^\/+/, "")}`
     : null;
 
   return (
@@ -233,48 +301,6 @@ function LaporanCard({ item, onUpdate }) {
         <p className="text-sm mt-2">
           <b>Deskripsi:</b> {item.deskripsi}
         </p>
-
-        <div className="flex gap-2 mt-3 flex-wrap">
-          <select
-            className="border p-1 rounded"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            <option value="Baru">Baru</option>
-            <option value="Diproses">Diproses</option>
-            <option value="Selesai">Selesai</option>
-          </select>
-
-          <input
-            className="border p-1 rounded"
-            placeholder="PIC"
-            value={pic}
-            onChange={(e) => setPic(e.target.value)}
-          />
-
-          <input
-            className="border p-1 rounded"
-            placeholder="Estimasi (contoh: 2 hari)"
-            value={estimasi}
-            onChange={(e) => setEstimasi(e.target.value)}
-          />
-
-          <input
-            className="border p-1 rounded flex-1"
-            placeholder="Komentar"
-            value={komentar}
-            onChange={(e) => setKomentar(e.target.value)}
-          />
-
-          <button
-            onClick={() =>
-              onUpdate(item.id, status, pic, estimasi, komentar)
-            }
-            className="bg-blue-600 text-white px-3 rounded"
-          >
-            Update
-          </button>
-        </div>
       </div>
     </div>
   );
