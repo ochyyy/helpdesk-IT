@@ -19,7 +19,7 @@ export async function GET() {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const userId = decoded.id;
 
-    const [rows] = await db.query(
+    const {rows}  = await db.query(
       `
       SELECT 
         id,

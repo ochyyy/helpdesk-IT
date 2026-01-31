@@ -17,7 +17,7 @@ export async function PUT(request, { params }) {
     );
 
     // ================== AMBIL DATA UNTUK TELEGRAM ==================
-    const [rows] = await db.query(
+    const {rows = []} = await db.query(
       `
       SELECT 
         l.judul,

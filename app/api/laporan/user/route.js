@@ -17,7 +17,7 @@ export async function GET() {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const [rows] = await db.query(
+    const { rows } = await db.query(
       "SELECT * FROM laporan WHERE user_id = ? ORDER BY created_at DESC",
       [decoded.id]
     );
