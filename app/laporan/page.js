@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function LaporanPage() {
   const router = useRouter();
@@ -14,22 +15,57 @@ export default function LaporanPage() {
   const [image, setImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // =========================
+  // Upload gambar ke Supabase Storage
+  // =========================
+  const uploadImage = async (file) => {
+    const ext = file.name.split(".").pop();
+    const fileName = `laporan-${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from("laporan") // nama bucket
+      .upload(fileName, file);
+
+    if (error) {
+      console.error("Upload error:", error);
+      throw new Error("Gagal upload gambar");
+    }
+
+    const { data } = supabase.storage
+      .from("laporan")
+      .getPublicUrl(fileName);
+
+    return data.publicUrl;
+  };
+
+  // =========================
+  // Submit laporan
+  // =========================
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const formData = new FormData();
-      formData.append("judul", title);
-      formData.append("deskripsi", description);
-      formData.append("kategori", category);
-      formData.append("lokasi", lokasi);
-      formData.append("prioritas", priority);
-      if (image) formData.append("image", image);
+      let imageUrl = null;
+
+      // upload gambar dulu (kalau ada)
+      if (image) {
+        imageUrl = await uploadImage(image);
+      }
 
       const res = await fetch("/api/laporan", {
         method: "POST",
-        body: formData,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          judul: title,
+          deskripsi: description,
+          kategori: category,
+          lokasi,
+          prioritas: priority,
+          gambar: imageUrl,
+        }),
       });
 
       const data = await res.json();
