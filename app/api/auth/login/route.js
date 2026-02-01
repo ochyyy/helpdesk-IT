@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
-import bcrypt from "bcryptjs";
+
 
 
 export async function POST(req) {
