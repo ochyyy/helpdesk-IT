@@ -1,48 +1,49 @@
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-import TelegramBot from "node-telegram-bot-api";
+
 import bcrypt from "bcrypt";
-import { db } from "@/lib/db.js";
+import { db } from "@/lib/db";
 
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+export async function POST(req) {
+  try {
+    const { username, password, telegram_chat_id } = await req.json();
 
-const step = {}; // simpan state user
-
-bot.onText(/\/daftar/, (msg) => {
-  step[msg.chat.id] = { stage: "username" };
-  bot.sendMessage(msg.chat.id, "📝 Masukkan username:");
-});
-
-bot.on("message", async (msg) => {
-  const chatId = msg.chat.id;
-  if (!step[chatId] || msg.text.startsWith("/")) return;
-
-  // STEP USERNAME
-  if (step[chatId].stage === "username") {
-    step[chatId].username = msg.text;
-    step[chatId].stage = "password";
-    return bot.sendMessage(chatId, "🔒 Masukkan password:");
-  }
-
-  // STEP PASSWORD
-  if (step[chatId].stage === "password") {
-    const { username } = step[chatId];
-    const passwordHash = await bcrypt.hash(msg.text, 10);
-
-    try {
-      await db.query(
-        `INSERT INTO users (username, password, role, telegram_chat_id)
-         VALUES (?, ?, 'user', ?)`,
-        [username, passwordHash, chatId]
+    if (!username || !password || !telegram_chat_id) {
+      return Response.json(
+        { success: false, message: "Data tidak lengkap" },
+        { status: 400 }
       );
-
-      bot.sendMessage(
-        chatId,
-        "✅ Registrasi berhasil!\nSekarang kamu bisa login di web."
-      );
-    } catch (err) {
-      bot.sendMessage(chatId, "❌ Username sudah digunakan.");
     }
 
-    delete step[chatId];
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    await db.query(
+      `
+      INSERT INTO users (username, password, role, telegram_chat_id)
+      VALUES ($1, $2, 'user', $3)
+      `,
+      [username, passwordHash, telegram_chat_id]
+    );
+
+    // 🔥 KIRIM TELEGRAM TANPA POLLING (AMAN)
+    await fetch(
+      `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegram_chat_id,
+          text: "✅ Registrasi berhasil!\nSekarang kamu bisa login di web.",
+        }),
+      }
+    );
+
+    return Response.json({ success: true });
+  } catch (err) {
+    console.error("REGISTER ERROR:", err);
+    return Response.json(
+      { success: false, message: "Username sudah digunakan" },
+      { status: 500 }
+    );
   }
-});
+}
