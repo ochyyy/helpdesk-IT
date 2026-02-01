@@ -3,7 +3,7 @@ dotenv.config();
 
 import TelegramBot from "node-telegram-bot-api";
 import mysql from "mysql2/promise";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 
 // ================= CEK TOKEN =================
 if (!process.env.TELEGRAM_BOT_TOKEN) {

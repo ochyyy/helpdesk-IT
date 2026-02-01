@@ -1,5 +1,10 @@
-import bcrypt from "bcryptjs";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { db } from "@/lib/db";
+import bcrypt from "bcryptjs";
+import bcrypt from "bcryptjs";
+
 
 export async function POST(req) {
   try {
@@ -11,20 +16,14 @@ export async function POST(req) {
     );
 
     if (result.rows.length === 0) {
-      return Response.json(
-        { message: "User tidak ditemukan" },
-        { status: 401 }
-      );
+      return Response.json({ message: "User tidak ditemukan" }, { status: 401 });
     }
 
     const user = result.rows[0];
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return Response.json(
-        { message: "Password salah" },
-        { status: 401 }
-      );
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) {
+      return Response.json({ message: "Password salah" }, { status: 401 });
     }
 
     return Response.json({
@@ -37,6 +36,6 @@ export async function POST(req) {
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    return Response.json({ message: "Server error" }, { status: 500 });
+    return Response.json({ message: "Terjadi kesalahan" }, { status: 500 });
   }
 }
