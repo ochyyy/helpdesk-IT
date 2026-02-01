@@ -1,9 +1,25 @@
 "use client";
+
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+
+let _supabase = null;
+
+// init supabase HANYA di browser
+async function getSupabase() {
+  if (_supabase) return _supabase;
+
+  const { createClient } = await import("@supabase/supabase-js");
+
+  _supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  return _supabase;
+}
 
 export default function LaporanPage() {
   const router = useRouter();
@@ -17,14 +33,16 @@ export default function LaporanPage() {
   const [loading, setLoading] = useState(false);
 
   // =========================
-  // Upload gambar ke Supabase Storage
+  // Upload gambar
   // =========================
   const uploadImage = async (file) => {
+    const supabase = await getSupabase();
+
     const ext = file.name.split(".").pop();
     const fileName = `laporan-${Date.now()}.${ext}`;
 
     const { error } = await supabase.storage
-      .from("laporan") // nama bucket
+      .from("laporan")
       .upload(fileName, file);
 
     if (error) {
@@ -49,16 +67,13 @@ export default function LaporanPage() {
     try {
       let imageUrl = null;
 
-      // upload gambar dulu (kalau ada)
       if (image) {
         imageUrl = await uploadImage(image);
       }
 
       const res = await fetch("/api/laporan", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           judul: title,
           deskripsi: description,
